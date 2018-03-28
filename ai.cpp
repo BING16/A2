@@ -114,36 +114,6 @@ void HappyGrow_(Info& info) {
 		info.myCommandList.addCommand(upgrade, RegenerationSpeed);
 		step++;
 	}
-	/*if (info.playerInfo[Player[0].MyID].technologyPoint >= 2
-		&& info.playerInfo[Player[0].MyID].RegenerationSpeedLevel < 1
-		&& step < info.myMaxControl) {
-		info.myCommandList.addCommand(upgrade, RegenerationSpeed);
-		step++;
-	}
-	if (info.playerInfo[Player[0].MyID].technologyPoint >= 4
-		&& info.playerInfo[Player[0].MyID].RegenerationSpeedLevel < 2
-		&& step < info.myMaxControl) {
-		info.myCommandList.addCommand(upgrade, RegenerationSpeed);
-		step++;
-	}
-	if (info.playerInfo[Player[0].MyID].technologyPoint >= 6
-		&& info.playerInfo[Player[0].MyID].RegenerationSpeedLevel < 3
-		&& step < info.myMaxControl) {
-		info.myCommandList.addCommand(upgrade, RegenerationSpeed);
-		step++;
-	}
-	if (info.playerInfo[Player[0].MyID].technologyPoint >= 8
-		&& info.playerInfo[Player[0].MyID].RegenerationSpeedLevel < 4
-		&& step < info.myMaxControl) {
-		info.myCommandList.addCommand(upgrade, RegenerationSpeed);
-		step++;
-	}
-	if (info.playerInfo[Player[0].MyID].technologyPoint >= 10
-		&& info.playerInfo[Player[0].MyID].RegenerationSpeedLevel < 5
-		&& step < info.myMaxControl) {
-		info.myCommandList.addCommand(upgrade, RegenerationSpeed);
-		step++;
-	}*/
 
 	//ÎÞÄÔ´«Êä
 	for (i = 1; i < Player[0].TowersMyID.size(); i++) {
