@@ -40,6 +40,7 @@ bool Attackable_(Info& info, MYTID tower1, MYTID tower2);      //判断能否进攻1.0
 void Reattack_(Info& info, MYTID tower1, MYTID tower2);      //反击函数
 void Attack_(Info& info);      //进攻函数
 void SearchBesAim_(Info& info, MYTID tower);      //寻找最优进攻目标 
+void CutLine_(Info& info);      //切断兵线
 
 /*选手主函数*/
 void player_ai(Info& info)
@@ -52,10 +53,12 @@ void player_ai(Info& info)
 	//bool test2 = info.mapInfo->passable(info.towerInfo[1].position, info.towerInfo[2].position);
 	//double D = getDistance(info.towerInfo[0].position, info.towerInfo[1].position) / 10;
 
-	int Dmax = 0;      //其他势力总资源大于我方总资源的量的最大值
-	for (int i = 1; i < 4; i++)
-		if (Dmax <= (Player[i].TResource - Player[0].TResource))
-			(Dmax = (Player[i].TResource - Player[0].TResource));
+	CutLine_(info);
+
+	//int Dmax = 0;      //其他势力总资源大于我方总资源的量的最大值
+	//for (int i = 1; i < 4; i++)
+	//	if (Dmax <= (Player[i].TResource - Player[0].TResource))
+	//		(Dmax = (Player[i].TResource - Player[0].TResource));
 	//if (Player[0].TResource < 100&&Dmax<=30) {      //触发猥琐发育
 	HappyGrow_(info);
 	//}
@@ -181,25 +184,16 @@ void HappyGrow_(Info& info) {
 
 	//无脑传输
 	for (int i = 1; i < Player[0].TowersMyID.size(); i++) {
-		if (step >= info.myMaxControl)
+		if (step >= info.myMaxControl
+			||(Tower[i].Attactktowers.size() > 0      //受到攻击或主塔即将到达上限兵力数
+			|| info.towerInfo[Player[0].TowersMyID[0]].maxResource - info.towerInfo[Player[0].TowersMyID[0]].resource < 10))
 			return;
+		/*部分代码转移至CutLine_()*/
 		else if ((info.towerInfo[Player[0].TowersMyID[i]].resource - 10) > 20
 			&& info.towerInfo[Player[0].TowersMyID[i]].resource >= 10      //初始值大约在10
 			&& info.towerInfo[Player[0].TowersMyID[0]].resource < info.towerInfo[Player[0].TowersMyID[0]].maxResource) {
 			if (Passable_(info, Player[0].TowersMyID[i], Player[0].TowersMyID[0])) {      //目标兵线不存在且兵力可到达
 				info.myCommandList.addCommand(addLine, Player[0].TowersMyID[i], Player[0].TowersMyID[0]);
-				step++;
-			}
-		}
-		else if (info.towerInfo[Player[0].TowersMyID[0]].maxResource - info.towerInfo[Player[0].TowersMyID[0]].resource < 10) {
-			if (info.lineInfo[Player[0].TowersMyID[i]][Player[0].TowersMyID[0]].exist) {      //原兵线仍存在
-				info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i], Player[0].TowersMyID[0],
-					getDistance(info.towerInfo[Player[0].TowersMyID[i]].position, info.towerInfo[Player[0].TowersMyID[0]].position) / 10 - 1);
-				step++;
-			}
-			if (Passable_(info, Player[0].TowersMyID[i], Player[0].TowersMyID[0])      //目标兵线不存在且兵力可到达
-				&& step < info.myMaxControl) {
-				info.myCommandList.addCommand(addLine, Player[0].TowersMyID[0], Player[0].TowersMyID[i]);
 				step++;
 			}
 		}
@@ -232,7 +226,7 @@ bool Attackable_(Info& info, MYTID tower1, MYTID tower2) {
 		return false;
 
 	double D = getDistance(info.towerInfo[tower1].position, info.towerInfo[tower2].position) / 10;     //计算距离
-	if (info.towerInfo[tower1].resource >= D + info.towerInfo[tower2].resource)      //比较某时刻的兵力，需计算之后的兵力
+	if (info.towerInfo[tower1].resource >= D + info.towerInfo[tower2].resource + 10)      //比较某时刻的兵力，需计算之后的兵力
 		return true;
 	else
 		return false;
@@ -240,7 +234,7 @@ bool Attackable_(Info& info, MYTID tower1, MYTID tower2) {
 
 //反击函数及防御
 void Reattack_(Info& info, MYTID tower1, MYTID tower2) {
-	if (Attackable_(info, tower1, tower2) == false) {
+	if (Attackable_(info, tower1, tower2) == false) {      //无法成功反击
 		if (Tower[tower1].strategy != Defence
 			&&info.towerInfo[tower2].strategy == Attack)
 			if (info.playerInfo[Player[0].MyID].technologyPoint >= 3
@@ -250,20 +244,13 @@ void Reattack_(Info& info, MYTID tower1, MYTID tower2) {
 				step++;
 			}
 	}
-	else if (step < info.playerInfo[Player[0].MyID].maxControlNumber
+	else if (step < info.myMaxControl
 		&&info.towerInfo[tower2].owner != info.myID) {
 		info.myCommandList.addCommand(addLine, tower1, tower2);
 		step++;
 	}
 
-	for (int i = 0; i < Tower[tower1].Aimtowers.size(); i++) {
-		if (info.towerInfo[Tower[tower1].Aimtowers[i]].owner == info.myID
-			&&step < info.myMaxControl) {
-			info.myCommandList.addCommand(cutLine, tower1, Tower[tower1].Aimtowers[i],
-				getDistance(info.towerInfo[tower1].position, info.towerInfo[Tower[tower1].Aimtowers[i]].position) / 10 - 1);
-			step++;
-		}
-	}
+	/*部分代码在切断函数中实现*/
 }
 
 //进攻函数
@@ -276,8 +263,16 @@ void Attack_(Info& info) {
 			if (step >= info.myMaxControl)
 				break;
 			else {
-				info.myCommandList.addCommand(addLine, Player[0].TowersMyID[k], Toweraims[i]);
-				step++;
+				if (Tower[Player[0].TowersMyID[k]].strategy != Attack
+					&&Tower[Toweraims[i]].strategy != Defence) {      //攻击模式...加了这个后简直上天了...
+					info.myCommandList.addCommand(changeStrategy, Player[0].TowersMyID[k], Attack);
+					Tower[Player[0].TowersMyID[k]].strategy = Attack;
+					step++;
+				}
+				if (step < info.myMaxControl) {
+					info.myCommandList.addCommand(addLine, Player[0].TowersMyID[k], Toweraims[i]);
+					step++;
+				}
 			}
 		}
 	}
@@ -293,7 +288,7 @@ void SearchBesAim_(Info& info, MYTID tower) {
 			continue;
 		else {
 			Toweraims.push_back(i);
-			D.push_back(getDistance(info.towerInfo[tower].position, info.towerInfo[Toweraims[i]].position) / 10);
+			D.push_back(getDistance(info.towerInfo[tower].position, info.towerInfo[i].position) / 10);
 		}
 	}
 	for (int i = 0; i < Toweraims.size(); i++)       //简单的资源距离由优到劣
@@ -307,4 +302,47 @@ void SearchBesAim_(Info& info, MYTID tower) {
 				D[j] = tempD;
 			}
 		}
+}
+
+//切断兵线
+void CutLine_(Info& info) {
+	for (int i = 0; i < Player[0].TowersMyID.size(); i++) {
+		if (step >= info.myMaxControl)
+			return;
+		for (int j = 0; j < Tower[Player[0].TowersMyID[i]].Aimtowers.size(); j++) {
+			if (step >= info.myMaxControl)
+				return;
+			if (info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].owner == info.myID) {
+				if ((info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].maxResource
+					- info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource < 10
+					|| Tower[Player[0].TowersMyID[i]].Attactktowers.size() > 0)
+					&& info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].exist) {
+					info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
+						Tower[Player[0].TowersMyID[i]].Aimtowers[j],
+						getDistance(info.towerInfo[Player[0].TowersMyID[i]].position,
+							info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].position) / 10 - 1);      //切断对主塔的奶
+					step++;
+				}
+				if (info.towerInfo[Player[0].TowersMyID[i]].resource < 40
+					&& info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].exist) {
+					info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
+						Tower[Player[0].TowersMyID[i]].Aimtowers[j],
+						41 - info.towerInfo[Player[0].TowersMyID[i]].resource);      //切断对主塔的奶
+					step++;
+				}
+			}
+			else {
+				if (info.towerInfo[Player[0].TowersMyID[i]].resource < info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource + 10) {
+					info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
+						Tower[Player[0].TowersMyID[i]].Aimtowers[j],
+						getDistance(info.towerInfo[Player[0].TowersMyID[i]].position,
+							info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].position) / 10 - 1);      //撤兵
+					step++;
+				}
+			}
+		}
+
+
+
+	}
 }
