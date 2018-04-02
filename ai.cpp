@@ -1,3 +1,27 @@
+/**********************************--日志--**************************************
+版本信息:
+v1.0 基本功能实现, 仍需优化部分算法
+v1.1 增加命名空间, 具体效果尚未测试
+
+预计增加及优化的内容:
+1.优化Attackable_中对行进速度v、进攻能力o、防御能力o、回复速率v等影响的计算     o
+2.增加Reattack_中的支援算法                                                     o
+3.优化SearchBesAim_中对求援能力的、防御回复进攻能力的考虑                       v
+4.优化Attack_中的围攻、支援算法                                                 o
+5.优化Passable_中对回复速率及剩余兵力的考虑                                     v
+6.215、216行有未知功能的代码                              代码已乱, 未表现出bug v
+7.是否需要借助障碍物防御                                         似乎没有障碍物 x
+8.优化CutLine_中进攻后切断相关                                                  o
+9.在下图模式中惨败, 需分析原因                    具体原因未知, 增加G策略后完胜 v
+ ---------------------------------
+|../player_ai/ai/Release/ai.dll   |
+|../sample_ai/sample_ai_ver1.3.dll|
+|../sample_ai/random_ai_2.dll     |
+|../sample_ai/sample_ai_ver1.1.dll|
+ ---------------------------------
+
+*********************************************************************************/
+
 #include "ai.h"
 #include "definition.h"
 #include "user_toolbox.h"
@@ -6,62 +30,58 @@
 #include <time.h>
 #include <stdlib.h>
 
-/*数据类型定义*/
-typedef int MYPID;
-typedef int MYTID;
-typedef struct MyPlayerInfo {
-	TPlayerID ID;
-	MYPID MyID;      //在info.playerInfo中的序列, 用以直接查询info.playerInfo[MYID]中的信息
-	double TResource = 0;      //势力的总资源数
-	vector <MYTID> TowersMyID;      //对应着info.towerInfo和Tower中的顺序
-};
-typedef struct MyTowerInfo {
-	TTowerID ID;
-	MYTID MyID;      //在info.towerInfo中的序列, 用以直接查询info.towerInfo[MYID]中的信息
-	int currLineNum;      //当前兵线数 = info.towerInfo[MYID].currLineNum
-	TowerStrategy strategy;      //实时更新的塔属性
-	vector <MYTID> Aimtowers;      //正进攻的塔
-	vector <MYTID> Attactktowers;      //进攻该塔的塔
-};
+namespace Alchemist {      //尝试使用命名空间解决无法在线游戏的问题
+	/*数据类型定义*/
+	typedef int MYPID;
+	typedef int MYTID;
+	typedef struct MyPlayerInfo {
+		TPlayerID ID;
+		MYPID MyID;      //在info.playerInfo中的序列, 用以直接查询info.playerInfo[MYID]中的信息
+		double TResource = 0;      //势力的总资源数
+		vector <MYTID> TowersMyID;      //对应着info.towerInfo和Tower中的顺序
+	};
+	typedef struct MyTowerInfo {
+		TTowerID ID;
+		MYTID MyID;      //在info.towerInfo中的序列, 用以直接查询info.towerInfo[MYID]中的信息
+		int currLineNum;      //当前兵线数 = info.towerInfo[MYID].currLineNum
+		TowerStrategy strategy;      //实时更新的塔属性
+		vector <MYTID> Aimtowers;      //正进攻的塔
+		vector <MYTID> Attactktowers;      //进攻该塔的塔
+	};
 
-/*数据定义*/
-int step = 0;      //当前操作数，上限为info.myMaxControl
-Command C;      //命令结构体
-static vector<MyPlayerInfo> Player;      //玩家, 我方为[0]
-static vector<MyTowerInfo> Tower;      //塔,顺序对应info.towerInfo[]中顺序
-static int alivenum = 0;      //剩余玩家数
-static vector <MYTID> Toweraims;      //进攻函数相关参数
+	/*数据声明*/
+	int step = 0;      //当前操作数，上限为info.myMaxControl
+	Command C;      //命令结构体
+	vector<MyPlayerInfo> Player;      //玩家, 我方为[0]
+	vector<MyTowerInfo> Tower;      //塔,顺序对应info.towerInfo[]中顺序
+	int alivenum = 0;      //剩余玩家数
+	vector <MYTID> Toweraims;      //进攻函数相关参数
 
-/*函数声明区*/
-void Initialize_(Info& info);      //信息初始化
-void HappyGrow_(Info& info);      //猥琐发育
-bool Passable_(Info& info, MYTID tower1, MYTID tower2);      //判断能否正常出兵1.0
-bool Attackable_(Info& info, MYTID tower1, MYTID tower2);      //判断能否进攻1.0
-void Reattack_(Info& info, MYTID tower1, MYTID tower2);      //反击函数
-void Attack_(Info& info);      //进攻函数
-void SearchBesAim_(Info& info, MYTID tower);      //寻找最优进攻目标 
-void CutLine_(Info& info);      //切断兵线
+	/*函数声明区*/
+	void Initialize_(Info& info);      //信息初始化
+	void HappyGrow_(Info& info);      //猥琐发育
+	bool Passable_(Info& info, MYTID tower1, MYTID tower2);      //判断能否正常出兵1.0
+	double Attackable_(Info& info, MYTID tower1, MYTID tower2);      //判断能否进攻1.0
+	void Reattack_(Info& info, MYTID tower1, MYTID tower2);      //反击函数
+	void Attack_(Info& info);      //进攻函数
+	void SearchBesAim_(Info& info, MYTID tower);      //寻找最优进攻目标 
+	void CutLine_(Info& info);      //切断兵线
+	double vGrow_(Info& info, MYTID tower);
+	double vDown_(Info& info, MYTID tower);
+	double v_(Info& info, MYTID tower);
+}
+
+using namespace Alchemist;
 
 /*选手主函数*/
+
 void player_ai(Info& info)
 {
 	Initialize_(info);
 
-	//调试用
-	//bool test;
-	//test = Passable_(info, 1, 2);
-	//bool test2 = info.mapInfo->passable(info.towerInfo[1].position, info.towerInfo[2].position);
-	//double D = getDistance(info.towerInfo[0].position, info.towerInfo[1].position) / 10;
-
 	CutLine_(info);
 
-	//int Dmax = 0;      //其他势力总资源大于我方总资源的量的最大值
-	//for (int i = 1; i < 4; i++)
-	//	if (Dmax <= (Player[i].TResource - Player[0].TResource))
-	//		(Dmax = (Player[i].TResource - Player[0].TResource));
-	//if (Player[0].TResource < 100&&Dmax<=30) {      //触发猥琐发育
 	HappyGrow_(info);
-	//}
 
 	for (int i = 0; i < Player[0].TowersMyID.size(); i++) {      //触发反击
 		if (step >= info.myMaxControl)
@@ -79,7 +99,7 @@ void player_ai(Info& info)
 /*函数定义区*/
 
 //初始化信息
-void Initialize_(Info& info) {
+void Alchemist:: Initialize_(Info& info) {
 	step = 0;
 
 	//初初始化Player[]信息以及势力ID改变时更新数据
@@ -155,7 +175,7 @@ void Initialize_(Info& info) {
 }
 
 //猥琐发育
-void HappyGrow_(Info& info) {
+void Alchemist::HappyGrow_(Info& info) {
 	//无脑势力属性提升
 	if (info.playerInfo[Player[0].MyID].technologyPoint >=      //资源再生
 		RegenerationSpeedUpdateCost[info.playerInfo[Player[0].MyID].RegenerationSpeedLevel]
@@ -200,12 +220,12 @@ void HappyGrow_(Info& info) {
 	}
 }
 
-//判断能否正常出兵1.0 不考虑速率问题
-bool Passable_(Info& info, MYTID tower1, MYTID tower2) {
+//判断能否正常出兵2.0 不考虑速率问题
+bool Alchemist::Passable_(Info& info, MYTID tower1, MYTID tower2) {
 	//线路判断
 	if (tower1 == tower2      //同一个塔
-		//||info.mapInfo->passable(info.towerInfo[tower1].position,
-		//info.towerInfo[tower2].position) == false      //无路可走
+		||info.mapInfo->passable(info.towerInfo[tower1].position,
+		info.towerInfo[tower2].position) == false      //无路可走
 		|| info.lineInfo[tower1][tower2].exist) {      //兵线存在
 		return false;
 	}
@@ -220,27 +240,39 @@ bool Passable_(Info& info, MYTID tower1, MYTID tower2) {
 		return false;
 }
 
-//判断能否进攻1.0
-bool Attackable_(Info& info, MYTID tower1, MYTID tower2) {
+//判断能否进攻2.0
+double Alchemist::Attackable_(Info& info, MYTID tower1, MYTID tower2) {
 	if (Passable_(info, tower1, tower2) == false)      //不可出征
 		return false;
 
 	double D = getDistance(info.towerInfo[tower1].position, info.towerInfo[tower2].position) / 10;     //计算距离
-	if (info.towerInfo[tower1].resource >= D + info.towerInfo[tower2].resource + 10)      //比较某时刻的兵力，需计算之后的兵力
-		return true;
+	double t = D / v_(info, tower1);      //到达需要的时间
+	double S = info.towerInfo[tower1].resource * (vGrow_(info, tower1) * t - vDown_(info, tower1));      //到达后的源
+	double A = info.towerInfo[tower2].resource * vGrow_(info, tower2) * t;      //到达后的目标
+	if (S > D + A + 10)      //比较某时刻的兵力，需计算之后的兵力
+		return S - D - A - 10;
 	else
-		return false;
+		return 0;
 }
 
 //反击函数及防御
-void Reattack_(Info& info, MYTID tower1, MYTID tower2) {
-	if (Attackable_(info, tower1, tower2) == false) {      //无法成功反击
+void Alchemist::Reattack_(Info& info, MYTID tower1, MYTID tower2) {
+	if (Attackable_(info, tower1, tower2) == 0) {      //无法成功反击
 		if (Tower[tower1].strategy != Defence
-			&&info.towerInfo[tower2].strategy == Attack)
-			if (info.playerInfo[Player[0].MyID].technologyPoint >= 3
+			&&info.towerInfo[tower2].strategy == Attack) {
+			if (info.playerInfo[Player[0].MyID].technologyPoint >= 5
 				&& info.towerInfo[tower2].owner != info.myID) {
 				info.myCommandList.addCommand(changeStrategy, tower1, Defence);
 				Tower[tower1].strategy = Defence;
+				step++;
+			}
+		}
+		else if(Tower[tower1].strategy != Grow
+			&&info.towerInfo[tower2].strategy == Normal)
+			if (info.playerInfo[Player[0].MyID].technologyPoint >= 5
+				&& info.towerInfo[tower2].owner != info.myID) {
+				info.myCommandList.addCommand(changeStrategy, tower1, Grow);
+				Tower[tower1].strategy = Grow;
 				step++;
 			}
 	}
@@ -254,7 +286,7 @@ void Reattack_(Info& info, MYTID tower1, MYTID tower2) {
 }
 
 //进攻函数
-void Attack_(Info& info) {
+void Alchemist::Attack_(Info& info) {
 	for (int k = 0; k < Player[0].TowersMyID.size(); k++) {
 		if (step >= info.myMaxControl)
 			break;
@@ -279,33 +311,35 @@ void Attack_(Info& info) {
 }
 
 //寻找最优进攻目标 
-void SearchBesAim_(Info& info, MYTID tower) {
+void Alchemist::SearchBesAim_(Info& info, MYTID tower) {
 	Toweraims.clear();
-	vector <double> D;
+	vector <double> S;
+	double Stemp;
 	for (int i = 0; i < info.towerNum; i++) {      //统计可进攻塔的信息
+		Stemp = Attackable_(info, tower, i);
 		if (info.towerInfo[i].owner == info.myID
-			|| Attackable_(info, tower, i) == false)
+			|| Stemp == 0)
 			continue;
 		else {
 			Toweraims.push_back(i);
-			D.push_back(getDistance(info.towerInfo[tower].position, info.towerInfo[i].position) / 10);
+			S.push_back(Stemp);
 		}
 	}
 	for (int i = 0; i < Toweraims.size(); i++)       //简单的资源距离由优到劣
 		for (int j = i + 1; j < Toweraims.size(); j++) {
-			if (info.towerInfo[Toweraims[i]].resource - D[i] < info.towerInfo[Toweraims[j]].resource - D[j]) {
+			if (S[i] < S[j]) {
 				MYTID temp = Toweraims[i];
-				double tempD = D[i];
+				double tempS = S[i];
 				Toweraims[i] = Toweraims[j];
 				Toweraims[j] = temp;
-				D[i] = D[j];
-				D[j] = tempD;
+				S[i] = S[j];
+				S[j] = tempS;
 			}
 		}
 }
 
 //切断兵线
-void CutLine_(Info& info) {
+void Alchemist::CutLine_(Info& info) {
 	for (int i = 0; i < Player[0].TowersMyID.size(); i++) {
 		if (step >= info.myMaxControl)
 			return;
@@ -345,4 +379,73 @@ void CutLine_(Info& info) {
 
 
 	}
+}
+
+//回复速率计算
+double Alchemist::vGrow_(Info& info, MYTID tower) {
+	int n = info.towerInfo[tower].resource;
+	double v0, vc, vs;      //基础、策略、势力
+
+	if (n < 10)
+		v0 = 1;
+	else if (n < 40)
+		v0 = 1.5;
+	else if (n < 80)
+		v0 = 2;
+	else if (n < 150)
+		v0 = 2.5;
+	else
+		v0 = 3;
+
+	switch (Tower[tower].strategy)
+	{
+	case Defence:
+		vc = 0.5;
+		break;
+	case Grow:
+		vc = 1.5;
+		break;
+	default:
+		vc = 1;
+		break;
+	}
+
+	vs = 1 + 0.05*info.playerInfo[info.towerInfo[tower].owner].RegenerationSpeedLevel;
+
+	return (v0*vc*vs);
+}
+
+//出兵速率
+double Alchemist::v_(Info& info, MYTID tower) {
+	double v0 = 3;
+	double vs;
+
+	vs = 1 + 0.1*info.playerInfo[info.towerInfo[tower].owner].ExtendingSpeedLevel;
+
+	return (v0*vs);
+}
+
+//消耗速率计算
+double Alchemist::vDown_(Info& info, MYTID tower) {
+	int lineN = Tower[tower].Aimtowers.size();
+	double v0 = v_(info, tower);
+	double v1;
+
+	switch (lineN)
+	{
+	case 0:
+		v1 = 0; 
+		break;
+	case 1:
+		v1 = 1;
+		break;
+	case 2:
+		v1 = 0.8 * 2;
+		break;
+	default:
+		v1 = 0.6 * 3;
+		break;
+	}
+
+	return (v0*v1);
 }
