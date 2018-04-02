@@ -431,21 +431,7 @@ double Alchemist::vDown_(Info& info, MYTID tower) {
 	double v0 = v_(info, tower);
 	double v1;
 
-	switch (lineN)
-	{
-	case 0:
-		v1 = 0; 
-		break;
-	case 1:
-		v1 = 1;
-		break;
-	case 2:
-		v1 = 0.8 * 2;
-		break;
-	default:
-		v1 = 0.6 * 3;
-		break;
-	}
+	v1 = lineN*(0.8 + 0.2*lineN);
 
 	return (v0*v1);
 }
