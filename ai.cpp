@@ -13,12 +13,14 @@ v1.1 增加命名空间, 具体效果尚未测试
 7.是否需要借助障碍物防御                                         似乎没有障碍物 x
 8.优化CutLine_中进攻后切断相关                                                  o
 9.在下图模式中惨败, 需分析原因                    具体原因未知, 增加G策略后完胜 v
- ---------------------------------
+---------------------------------
 |../player_ai/ai/Release/ai.dll   |
 |../sample_ai/sample_ai_ver1.3.dll|
 |../sample_ai/random_ai_2.dll     |
 |../sample_ai/sample_ai_ver1.1.dll|
- ---------------------------------
+---------------------------------
+
+v1.2 更新一些内容，网页无法通过编译的现象仍然存在
 
 *********************************************************************************/
 
@@ -31,7 +33,7 @@ v1.1 增加命名空间, 具体效果尚未测试
 #include <stdlib.h>
 
 namespace Alchemist {      //尝试使用命名空间解决无法在线游戏的问题
-	/*数据类型定义*/
+						   /*数据类型定义*/
 	typedef int MYPID;
 	typedef int MYTID;
 	typedef struct MyPlayerInfo {
@@ -57,7 +59,7 @@ namespace Alchemist {      //尝试使用命名空间解决无法在线游戏的问题
 	int alivenum = 0;      //剩余玩家数
 	vector <MYTID> Toweraims;      //进攻函数相关参数
 
-	/*函数声明区*/
+								   /*函数声明区*/
 	void Initialize_(Info& info);      //信息初始化
 	void HappyGrow_(Info& info);      //猥琐发育
 	bool Passable_(Info& info, MYTID tower1, MYTID tower2);      //判断能否正常出兵1.0
@@ -99,7 +101,7 @@ void player_ai(Info& info)
 /*函数定义区*/
 
 //初始化信息
-void Alchemist:: Initialize_(Info& info) {
+void Alchemist::Initialize_(Info& info) {
 	step = 0;
 
 	//初初始化Player[]信息以及势力ID改变时更新数据
@@ -205,11 +207,11 @@ void Alchemist::HappyGrow_(Info& info) {
 	//无脑传输
 	for (int i = 1; i < Player[0].TowersMyID.size(); i++) {
 		if (step >= info.myMaxControl
-			||(Tower[i].Attactktowers.size() > 0      //受到攻击或主塔即将到达上限兵力数
-			|| info.towerInfo[Player[0].TowersMyID[0]].maxResource - info.towerInfo[Player[0].TowersMyID[0]].resource < 10))
+			|| (Tower[i].Attactktowers.size() > 0      //受到攻击或主塔即将到达上限兵力数
+				|| info.towerInfo[Player[0].TowersMyID[0]].maxResource - info.towerInfo[Player[0].TowersMyID[0]].resource < 10))
 			return;
 		/*部分代码转移至CutLine_()*/
-		else if ((info.towerInfo[Player[0].TowersMyID[i]].resource - 10) > 20
+		else if (Attackable_(info, Player[0].TowersMyID[i], Player[0].TowersMyID[0]) > 40
 			&& info.towerInfo[Player[0].TowersMyID[i]].resource >= 10      //初始值大约在10
 			&& info.towerInfo[Player[0].TowersMyID[0]].resource < info.towerInfo[Player[0].TowersMyID[0]].maxResource) {
 			if (Passable_(info, Player[0].TowersMyID[i], Player[0].TowersMyID[0])) {      //目标兵线不存在且兵力可到达
@@ -224,15 +226,15 @@ void Alchemist::HappyGrow_(Info& info) {
 bool Alchemist::Passable_(Info& info, MYTID tower1, MYTID tower2) {
 	//线路判断
 	if (tower1 == tower2      //同一个塔
-		||info.mapInfo->passable(info.towerInfo[tower1].position,
-		info.towerInfo[tower2].position) == false      //无路可走
+		|| info.mapInfo->passable(info.towerInfo[tower1].position,
+			info.towerInfo[tower2].position) == false      //无路可走
 		|| info.lineInfo[tower1][tower2].exist) {      //兵线存在
 		return false;
 	}
 
 	double D = getDistance(info.towerInfo[tower1].position, info.towerInfo[tower2].position) / 10;     //计算距离
 
-	//兵力判断
+																									   //兵力判断
 	if (info.towerInfo[tower1].currLineNum < info.towerInfo[tower1].maxLineNum      //可派兵
 		&&info.towerInfo[tower1].resource >= D)      //兵力足够出征
 		return true;
@@ -267,7 +269,7 @@ void Alchemist::Reattack_(Info& info, MYTID tower1, MYTID tower2) {
 				step++;
 			}
 		}
-		else if(Tower[tower1].strategy != Grow
+		else if (Tower[tower1].strategy != Grow
 			&&info.towerInfo[tower2].strategy == Normal)
 			if (info.playerInfo[Player[0].MyID].technologyPoint >= 5
 				&& info.towerInfo[tower2].owner != info.myID) {
