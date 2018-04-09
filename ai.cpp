@@ -28,17 +28,19 @@ v1.2
 
 预计增加及优化的内容:
 1. 尽早找出网页无法编译通过的bug的原因                     已解决, 为网站的问题 v
-2. 同步切断函数及延伸函数中一些参数的设定
+2. 同步切断函数及延伸函数中一些参数的设定                                       v
 3. 增加围攻功能
 4. 优化进攻数目
 5. 渔翁得利算法？
 6. 优化CutLine_中进攻后切断相关
-7. 在线比赛结果不尽如意, 仍需努力
+7. 在线比赛结果不尽如意, 仍需努力                                               o
 
-v1.3 
+v1.3
 1. 更改Attactktowers的统计规则
 2. 增加防御的优先级
-3. 在猥琐发育中增加生长塔于势力防御之前                  在本地对决中有一定效果
+3. 在猥琐发育中增加生长塔于势力防御之前 (在本地对决中有一定效果)
+4. 优化CutLine_中进攻后切断相关, 需完善 (考虑目标塔伸出的兵力)
+5. 增加最后一击算法 (统计势力所拥有的塔存在bug?)
 
 *********************************************************************************/
 
@@ -111,7 +113,27 @@ void player_ai(Info& info)
 			Reattack_(info, Player[0].TowersMyID[i], Tower[Player[0].TowersMyID[i]].Attactktowers[j]);
 	}
 
-	CutLine_(info);
+	if (info.playerInfo[info.myID].towers.size() < info.towerNum - 1 || info.round < 240)
+		CutLine_(info);
+	else {
+		TTowerID LonelyTown = Player[1].TowersMyID[0];
+		for (int i = 0; i < info.playerInfo[info.myID].towers.size(); i++) {
+			if (step >= info.myMaxControl)
+				break;
+			if (Passable_(info, Player[0].TowersMyID[i], LonelyTown)) {
+				if (Tower[Player[0].TowersMyID[i]].strategy != Attack
+					&&Tower[LonelyTown].strategy != Defence) {      //攻击模式
+					info.myCommandList.addCommand(changeStrategy, Player[0].TowersMyID[i], Attack);
+					Tower[Player[0].TowersMyID[i]].strategy = Attack;
+					step++;
+				}
+				if (step < info.myMaxControl) {
+					info.myCommandList.addCommand(addLine, Player[0].TowersMyID[i], LonelyTown);
+					step++;
+				}
+			}
+		}
+	}
 
 
 	if (info.towerInfo[Player[0].TowersMyID[0]].resource >= 60
@@ -163,7 +185,7 @@ void Alchemist::Initialize_(Info& info) {
 		Tower.clear();      //清空塔数组
 	}
 	for (int i = 0; i < info.towerNum; i++) {      //统计势力的总资源
-		for (int j = 0; j < 4; j++) {
+		for (int j = 0; j < Player.size(); j++) {
 			if (info.towerInfo[i].owner == Player[j].ID) {
 				Player[j].TResource += info.towerInfo[i].resource;
 				Player[j].TowersMyID.push_back(i);      //对应着info.towerInfo和Tower中的顺序
@@ -177,7 +199,7 @@ void Alchemist::Initialize_(Info& info) {
 		for (int k = 0; k < info.towerNum; k++) {      //统计塔信息
 			if (info.lineInfo[i][k].exist)
 				temptower.Aimtowers.push_back(k);
-			else if (info.lineInfo[k][i].exist&&info.towerInfo[i].owner != info.towerInfo[k].owner)
+			if (info.lineInfo[k][i].exist&&info.towerInfo[i].owner != info.towerInfo[k].owner)
 				temptower.Attactktowers.push_back(k);
 		}
 		Tower.push_back(temptower);
@@ -428,7 +450,16 @@ void Alchemist::CutLine_(Info& info) {
 			else {
 				//如果对方反击
 				if (info.lineInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]][Player[0].TowersMyID[i]].exist) {
-					if (info.towerInfo[Player[0].TowersMyID[i]].resource + 2 * info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource
+					if (info.lineInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]][Player[0].TowersMyID[i]].resource >
+						info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource +
+						info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource +
+						20) {
+						info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
+							Tower[Player[0].TowersMyID[i]].Aimtowers[j],
+							1);      //切断并快速进攻
+						step++;
+					}
+					else if (info.towerInfo[Player[0].TowersMyID[i]].resource + 2 * info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource
 						< info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource + /*10 + */info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].maxlength / 10) {
 						info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
 							Tower[Player[0].TowersMyID[i]].Aimtowers[j],
@@ -436,6 +467,14 @@ void Alchemist::CutLine_(Info& info) {
 								info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].position) / 10 - 1);      //撤兵
 						step++;
 					}
+				}
+				else if (info.lineInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]][Player[0].TowersMyID[i]].resource >
+					info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource +
+					20) {
+					info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
+						Tower[Player[0].TowersMyID[i]].Aimtowers[j],
+						1);      //切断并快速进攻
+					step++;
 				}
 				//如果被攻击或者无法安全攻占对方塔
 				else if (info.towerInfo[Player[0].TowersMyID[i]].resource + info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource
