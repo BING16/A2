@@ -29,18 +29,19 @@ v1.2
 预计增加及优化的内容:
 1. 尽早找出网页无法编译通过的bug的原因                     已解决, 为网站的问题 v
 2. 同步切断函数及延伸函数中一些参数的设定                                       v
-3. 增加围攻功能
-4. 优化进攻数目
-5. 渔翁得利算法？
-6. 优化CutLine_中进攻后切断相关
+3. 增加围攻功能                                                                 o
+4. 优化进攻数目                                                                 o
+5. 渔翁得利算法？                                                               o
+6. 优化CutLine_中进攻后切断相关                                                 v
 7. 在线比赛结果不尽如意, 仍需努力                                               o
 
 v1.3
 1. 更改Attactktowers的统计规则
 2. 增加防御的优先级
 3. 在猥琐发育中增加生长塔于势力防御之前 (在本地对决中有一定效果)
-4. 优化CutLine_中进攻后切断相关, 需完善 (考虑目标塔伸出的兵力)
+4. 增加快速攻击算法, 需完善 (考虑目标塔伸出的兵力)
 5. 增加最后一击算法 (统计势力所拥有的塔存在bug?)
+6. 增加塔的总资源信息
 
 *********************************************************************************/
 
@@ -67,6 +68,7 @@ namespace Alchemist {      //尝试使用命名空间解决无法在线游戏的问题
 		TTowerID ID;
 		MYTID MyID;      //在info.towerInfo中的序列, 用以直接查询info.towerInfo[MYID]中的信息
 		int currLineNum;      //当前兵线数 = info.towerInfo[MYID].currLineNum
+		TResourceD resourcesum;      //总资源
 		TowerStrategy strategy;      //实时更新的塔属性
 		vector <MYTID> Aimtowers;      //正进攻的塔
 		vector <MYTID> Attactktowers;      //进攻该塔的塔
@@ -89,6 +91,7 @@ namespace Alchemist {      //尝试使用命名空间解决无法在线游戏的问题
 	void Attack_(Info& info);      //进攻函数
 	void SearchBesAim_(Info& info, MYTID tower);      //寻找最优进攻目标 
 	void CutLine_(Info& info);      //切断兵线
+	void QuiklyAttack_(Info& info);      //快速切断
 	double vGrow_(Info& info, MYTID tower);
 	double vDown_(Info& info, MYTID tower);
 	double v_(Info& info, MYTID tower);
@@ -195,21 +198,27 @@ void Alchemist::Initialize_(Info& info) {
 		MyTowerInfo temptower;
 		temptower.ID = i;
 		temptower.MyID = i;
+		temptower.resourcesum = info.towerInfo[i].resource;
 		temptower.strategy = info.towerInfo[i].strategy;
 		for (int k = 0; k < info.towerNum; k++) {      //统计塔信息
-			if (info.lineInfo[i][k].exist)
+			if (info.lineInfo[i][k].exist) {
 				temptower.Aimtowers.push_back(k);
+				if (info.lineInfo[i][k].state != AfterCut)
+					temptower.resourcesum += info.lineInfo[i][k].resource;
+				else
+					temptower.resourcesum += info.lineInfo[i][k].backResource;
+			}
 			if (info.lineInfo[k][i].exist&&info.towerInfo[i].owner != info.towerInfo[k].owner)
 				temptower.Attactktowers.push_back(k);
 		}
 		Tower.push_back(temptower);
 	}
 
-	//各方塔按资源由大到小排序
+	//各方塔按总资源由大到小排序
 	for (int k = 0; k < alivenum; k++) {
 		for (int i = 1; i < Player[k].TowersMyID.size(); i++) {
 			for (int j = i + 1; j < Player[k].TowersMyID.size(); j++) {
-				if (info.towerInfo[Player[k].TowersMyID[i]].resource < info.towerInfo[Player[k].TowersMyID[j]].resource) {
+				if (Tower[Player[k].TowersMyID[i]].resourcesum < Tower[Player[k].TowersMyID[j]].resourcesum) {
 					//Player[0].TowersMyID.swap(i, j);
 					int temp = Player[k].TowersMyID[i];
 					Player[k].TowersMyID[i] = Player[k].TowersMyID[j];
@@ -326,9 +335,9 @@ double Alchemist::Attackable_(Info& info, MYTID tower1, MYTID tower2) {
 	double D = getDistance(info.towerInfo[tower1].position, info.towerInfo[tower2].position) / 10;     //计算距离
 	double t = D / v_(info, tower1);      //到达需要的时间
 	double S = info.towerInfo[tower1].resource + (vGrow_(info, tower1) * t - vDown_(info, tower1) * t);      //到达后的源
-	double A = info.towerInfo[tower2].resource + vGrow_(info, tower2) * t;      //到达后的目标
+	double A = Tower[tower2].resourcesum + vGrow_(info, tower2) * t;      //到达后的目标
 
-																				//满足到达后的源大于到达后的目标+10
+	//满足到达后的源大于到达后的目标+10
 	if (S > D + A + 10)      //比较某时刻的兵力，需计算之后的兵力
 		return S - D - A - 10;
 	else
@@ -450,16 +459,7 @@ void Alchemist::CutLine_(Info& info) {
 			else {
 				//如果对方反击
 				if (info.lineInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]][Player[0].TowersMyID[i]].exist) {
-					if (info.lineInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]][Player[0].TowersMyID[i]].resource >
-						info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource +
-						info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource +
-						20) {
-						info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
-							Tower[Player[0].TowersMyID[i]].Aimtowers[j],
-							1);      //切断并快速进攻
-						step++;
-					}
-					else if (info.towerInfo[Player[0].TowersMyID[i]].resource + 2 * info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource
+					if (info.towerInfo[Player[0].TowersMyID[i]].resource + 2 * info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource
 						< info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource + /*10 + */info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].maxlength / 10) {
 						info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
 							Tower[Player[0].TowersMyID[i]].Aimtowers[j],
@@ -467,14 +467,6 @@ void Alchemist::CutLine_(Info& info) {
 								info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].position) / 10 - 1);      //撤兵
 						step++;
 					}
-				}
-				else if (info.lineInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]][Player[0].TowersMyID[i]].resource >
-					info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource +
-					20) {
-					info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
-						Tower[Player[0].TowersMyID[i]].Aimtowers[j],
-						1);      //切断并快速进攻
-					step++;
 				}
 				//如果被攻击或者无法安全攻占对方塔
 				else if (info.towerInfo[Player[0].TowersMyID[i]].resource + info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource
@@ -492,6 +484,29 @@ void Alchemist::CutLine_(Info& info) {
 
 
 	}
+}
+
+//快速进攻
+void Alchemist::QuiklyAttack_(Info& info) {
+	for (int i = 0; i < Player[0].TowersMyID.size(); i++) {
+		for (int j = 0; j < Tower[Player[0].TowersMyID[i]].Aimtowers.size(); j++) {
+			if (step >= info.myMaxControl)
+				return;
+
+
+
+		}
+	}
+
+
+	//if (info.lineInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]][Player[0].TowersMyID[i]].resource >
+	//	info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource +
+	//	20) {
+	//	info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
+	//		Tower[Player[0].TowersMyID[i]].Aimtowers[j],
+	//		1);      //切断并快速进攻
+	//	step++;
+	//}
 }
 
 //回复速率计算
