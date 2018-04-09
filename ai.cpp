@@ -38,9 +38,9 @@ v1.2
 v1.3
 1. 更改Attactktowers的统计规则
 2. 增加防御的优先级
-3. 在猥琐发育中增加生长塔于势力防御之前 (在本地对决中有一定效果)
-4. 增加快速攻击算法, 需完善 (考虑目标塔伸出的兵力)
-5. 增加最后一击算法 (统计势力所拥有的塔存在bug?)
+3. 在猥琐发育中增加生长塔于势力防御之前 (在本地对决中有一定效果) v1.3.5
+4. 增加快速攻击算法, 需完善 v1.3.6 v1.3.7
+5. 增加最后一击算法 (统计势力所拥有的塔存在bug?) v1.3.5
 6. 增加塔的总资源信息
 
 *********************************************************************************/
@@ -105,15 +105,17 @@ void player_ai(Info& info)
 {
 	Initialize_(info);
 
-	if (step < info.myMaxControl) {
-		HappyGrow_(info);
-	}
+	QuiklyAttack_(info);
 
 	for (int i = 0; i < Player[0].TowersMyID.size(); i++) {      //触发反击
 		if (step >= info.myMaxControl)
 			break;
 		for (int j = 0; j < Tower[Player[0].TowersMyID[i]].Attactktowers.size(); j++)
 			Reattack_(info, Player[0].TowersMyID[i], Tower[Player[0].TowersMyID[i]].Attactktowers[j]);
+	}
+
+	if (step < info.myMaxControl) {
+		HappyGrow_(info);
 	}
 
 	if (info.playerInfo[info.myID].towers.size() < info.towerNum - 1 || info.round < 240)
@@ -493,20 +495,31 @@ void Alchemist::QuiklyAttack_(Info& info) {
 			if (step >= info.myMaxControl)
 				return;
 
+			bool QuiklyAttackAble = true;
+			int M, E = 0;
+			double MLs = info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource;
+			double ASs = Tower[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resourcesum;
+			for (int k = 0; k < Tower[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].Attactktowers.size(); k++) {
+				if (info.towerInfo[Tower[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].Attactktowers[k]].owner != info.myID)
+					E++;
+				else
+					M++;
+			}
+			if (M > E + 1 && MLs > ASs + 3) {      //兵线上的兵力大于目标塔总兵力 + 3
+			}
+			else
+				QuiklyAttackAble = false;
 
+			if (QuiklyAttackAble) {
+				info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
+					Tower[Player[0].TowersMyID[i]].Aimtowers[j],
+					MLs - ASs - 2);      //切断并快速进攻
+				step++;
+			}
 
 		}
 	}
 
-
-	//if (info.lineInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]][Player[0].TowersMyID[i]].resource >
-	//	info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource +
-	//	20) {
-	//	info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
-	//		Tower[Player[0].TowersMyID[i]].Aimtowers[j],
-	//		1);      //切断并快速进攻
-	//	step++;
-	//}
 }
 
 //回复速率计算
