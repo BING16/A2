@@ -39,9 +39,14 @@ v1.3
 1. 更改Attactktowers的统计规则
 2. 增加防御的优先级
 3. 在猥琐发育中增加生长塔于势力防御之前 (在本地对决中有一定效果) v1.3.5
-4. 增加快速攻击算法, 需完善 v1.3.6 v1.3.7
+4. 增加快速攻击算法, 需完善 v1.3.6 v1.3.7 (存在逻辑bug)
 5. 增加最后一击算法 (统计势力所拥有的塔存在bug?) v1.3.5
 6. 增加塔的总资源信息
+7. 手动抢占12号塔 v1.3.8
+8. 优化大量算法及数据名称 v1.3.9
+
+v1.4
+1. 修复v1.3.7中发现的bug, 并优化算法
 
 *********************************************************************************/
 
@@ -55,23 +60,19 @@ v1.3
 #include <stdlib.h>
 
 namespace Alchemist {      //尝试使用命名空间解决无法在线游戏的问题
-						   /*数据类型定义*/
-	typedef int MYPID;
-	typedef int MYTID;
+	/*数据类型定义*/
 	typedef struct MyPlayerInfo {
 		TPlayerID ID;
-		MYPID MyID;      //在info.playerInfo中的序列, 用以直接查询info.playerInfo[MYID]中的信息
 		double TResource;      //势力的总资源数
-		vector <MYTID> TowersMyID;      //对应着info.towerInfo和Tower中的顺序
+		vector <TTowerID> TowersID;      //对应着info.towerInfo和Tower中的顺序
 	};
 	typedef struct MyTowerInfo {
 		TTowerID ID;
-		MYTID MyID;      //在info.towerInfo中的序列, 用以直接查询info.towerInfo[MYID]中的信息
 		int currLineNum;      //当前兵线数 = info.towerInfo[MYID].currLineNum
 		TResourceD resourcesum;      //总资源
 		TowerStrategy strategy;      //实时更新的塔属性
-		vector <MYTID> Aimtowers;      //正进攻的塔
-		vector <MYTID> Attactktowers;      //进攻该塔的塔
+		vector <TTowerID> Aimtowers;      //正进攻的塔
+		vector <TTowerID> Attactktowers;      //进攻该塔的塔
 	};
 
 	/*数据声明*/
@@ -79,22 +80,21 @@ namespace Alchemist {      //尝试使用命名空间解决无法在线游戏的问题
 	Command C;      //命令结构体
 	vector<MyPlayerInfo> Player;      //玩家, 我方为[0]
 	vector<MyTowerInfo> Tower;      //塔,顺序对应info.towerInfo[]中顺序
-	int alivenum = 0;      //剩余玩家数
-	vector <MYTID> Toweraims;      //进攻函数相关参数
+	vector <TTowerID> Toweraims;      //进攻函数相关参数
 
-								   /*函数声明区*/
+	/*函数声明区*/
 	void Initialize_(Info& info);      //信息初始化
 	void HappyGrow_(Info& info);      //猥琐发育
-	bool Passable_(Info& info, MYTID tower1, MYTID tower2);      //判断能否正常出兵1.0
-	double Attackable_(Info& info, MYTID tower1, MYTID tower2);      //判断能否进攻1.0
-	void Reattack_(Info& info, MYTID tower1, MYTID tower2);      //反击函数
+	bool Passable_(Info& info, TTowerID tower1, TTowerID tower2);      //判断能否正常出兵1.0
+	double Attackable_(Info& info, TTowerID tower1, TTowerID tower2);      //判断能否进攻1.0
+	void Reattack_(Info& info, TTowerID tower1, TTowerID tower2);      //反击函数
 	void Attack_(Info& info);      //进攻函数
-	void SearchBesAim_(Info& info, MYTID tower);      //寻找最优进攻目标 
+	void SearchBesAim_(Info& info, TTowerID tower);      //寻找最优进攻目标 
 	void CutLine_(Info& info);      //切断兵线
 	void QuiklyAttack_(Info& info);      //快速切断
-	double vGrow_(Info& info, MYTID tower);
-	double vDown_(Info& info, MYTID tower);
-	double v_(Info& info, MYTID tower);
+	double vGrow_(Info& info, TTowerID tower);
+	double vDown_(Info& info, TTowerID tower);
+	double v_(Info& info, TTowerID tower);
 }
 
 using namespace Alchemist;
@@ -105,35 +105,46 @@ void player_ai(Info& info)
 {
 	Initialize_(info);
 
+	//先发占领12号塔
+	if (info.round <= 20 && info.towerInfo[Player[0].TowersID[2]].resource > 20
+		&& Tower[12].Attactktowers.size() == 0) {
+		info.myCommandList.addCommand(addLine, Player[0].TowersID[2], 12);
+		step++;
+	}
+
 	QuiklyAttack_(info);
 
-	for (int i = 0; i < Player[0].TowersMyID.size(); i++) {      //触发反击
+	for (int i = 0; i < Player[0].TowersID.size(); i++) {      //触发反击
 		if (step >= info.myMaxControl)
 			break;
-		for (int j = 0; j < Tower[Player[0].TowersMyID[i]].Attactktowers.size(); j++)
-			Reattack_(info, Player[0].TowersMyID[i], Tower[Player[0].TowersMyID[i]].Attactktowers[j]);
+		for (int j = 0; j < Tower[Player[0].TowersID[i]].Attactktowers.size(); j++)
+			Reattack_(info, Player[0].TowersID[i], Tower[Player[0].TowersID[i]].Attactktowers[j]);
 	}
 
 	if (step < info.myMaxControl) {
 		HappyGrow_(info);
 	}
 
-	if (info.playerInfo[info.myID].towers.size() < info.towerNum - 1 || info.round < 240)
+	if (step < info.myMaxControl && 
+		info.round > 26 && (info.playerInfo[info.myID].towers.size() < info.towerNum - 1 || info.round < 240))
 		CutLine_(info);
-	else {
-		TTowerID LonelyTown = Player[1].TowersMyID[0];
+	else if (step < info.myMaxControl&&info.round == 25 && info.lineInfo[Player[0].TowersID[2]][12].exist) {
+		info.myCommandList.addCommand(cutLine, Player[0].TowersID[2], 12, 1);
+	}
+	else if(step < info.myMaxControl) {
+		TTowerID LonelyTown = Player[1].TowersID[0];
 		for (int i = 0; i < info.playerInfo[info.myID].towers.size(); i++) {
 			if (step >= info.myMaxControl)
 				break;
-			if (Passable_(info, Player[0].TowersMyID[i], LonelyTown)) {
-				if (Tower[Player[0].TowersMyID[i]].strategy != Attack
+			if (Passable_(info, Player[0].TowersID[i], LonelyTown)) {
+				if (Tower[Player[0].TowersID[i]].strategy != Attack
 					&&Tower[LonelyTown].strategy != Defence) {      //攻击模式
-					info.myCommandList.addCommand(changeStrategy, Player[0].TowersMyID[i], Attack);
-					Tower[Player[0].TowersMyID[i]].strategy = Attack;
+					info.myCommandList.addCommand(changeStrategy, Player[0].TowersID[i], Attack);
+					Tower[Player[0].TowersID[i]].strategy = Attack;
 					step++;
 				}
 				if (step < info.myMaxControl) {
-					info.myCommandList.addCommand(addLine, Player[0].TowersMyID[i], LonelyTown);
+					info.myCommandList.addCommand(addLine, Player[0].TowersID[i], LonelyTown);
 					step++;
 				}
 			}
@@ -141,7 +152,7 @@ void player_ai(Info& info)
 	}
 
 
-	if (info.towerInfo[Player[0].TowersMyID[0]].resource >= 60
+	if (info.towerInfo[Player[0].TowersID[0]].resource >= 60
 		&& step < info.myMaxControl)
 		Attack_(info);
 }
@@ -154,115 +165,92 @@ void Alchemist::Initialize_(Info& info) {
 	step = 0;
 
 	//初初始化Player[]信息以及势力ID改变时更新数据
-	if (alivenum != info.playerAlive) {
-		alivenum = info.playerAlive;      //剩余玩家数赋值
-		if (Player.size() != 0)
-			Player[0].ID = info.myID;
-		else {
+	Player.clear();
+	MyPlayerInfo IDtemp;
+	IDtemp.ID = info.myID;
+	IDtemp.TResource = 0;
+	Player.push_back(IDtemp);
+	for (int i = 0; i < info.playerSize; i++) {      //初始化ID数组, k为Player的序号
+		if (info.playerInfo[i].id != Player[0].ID&&info.playerInfo[i].alive) {      //非我方势力
 			MyPlayerInfo IDtemp;
-			IDtemp.ID = info.myID;
+			IDtemp.ID = i;
+			IDtemp.TResource = 0;
 			Player.push_back(IDtemp);
-		}
-		for (int i = 0, k = 1; i < alivenum; i++) {      //初始化ID数组
-			if (info.playerInfo[i].id != Player[0].ID) {      //k为Player的序号
-				if (Player.size() >= alivenum) {
-					Player[k].MyID = i;
-					Player[k].ID = info.playerInfo[i].id;
-					k++;
-				}
-				else {
-					MyPlayerInfo IDtemp;
-					IDtemp.ID = i;
-					IDtemp.ID = info.playerInfo[i].id;
-					Player.push_back(IDtemp);      //第k个
-					k++;
-				}
-			}
-			else
-				Player[0].MyID = i;
 		}
 	}
 
 	//实时统计势力资源及塔信息
-	for (int i = 0; i < alivenum; i++) {
-		Player[i].TResource = 0;      //势力总资源数据归零
-		Player[i].TowersMyID.clear();      //清空势力的塔信息
-		Tower.clear();      //清空塔数组
-	}
+	Tower.clear();      //清空塔数组
 	for (int i = 0; i < info.towerNum; i++) {      //统计势力的总资源
 		for (int j = 0; j < Player.size(); j++) {
 			if (info.towerInfo[i].owner == Player[j].ID) {
 				Player[j].TResource += info.towerInfo[i].resource;
-				Player[j].TowersMyID.push_back(i);      //对应着info.towerInfo和Tower中的顺序
+				Player[j].TowersID.push_back(i);
 				break;
 			}
 		}
 		MyTowerInfo temptower;
 		temptower.ID = i;
-		temptower.MyID = i;
 		temptower.resourcesum = info.towerInfo[i].resource;
 		temptower.strategy = info.towerInfo[i].strategy;
 		for (int k = 0; k < info.towerNum; k++) {      //统计塔信息
 			if (info.lineInfo[i][k].exist) {
 				temptower.Aimtowers.push_back(k);
-				if (info.lineInfo[i][k].state != AfterCut)
+				if (info.lineInfo[i][k].resource != 0)
 					temptower.resourcesum += info.lineInfo[i][k].resource;
-				else
+				else if (info.lineInfo[i][k].backResource != 0)
 					temptower.resourcesum += info.lineInfo[i][k].backResource;
 			}
-			if (info.lineInfo[k][i].exist&&info.towerInfo[i].owner != info.towerInfo[k].owner)
+			if (info.lineInfo[k][i].exist && info.towerInfo[i].owner != info.towerInfo[k].owner)
 				temptower.Attactktowers.push_back(k);
 		}
 		Tower.push_back(temptower);
 	}
 
 	//各方塔按总资源由大到小排序
-	for (int k = 0; k < alivenum; k++) {
-		for (int i = 1; i < Player[k].TowersMyID.size(); i++) {
-			for (int j = i + 1; j < Player[k].TowersMyID.size(); j++) {
-				if (Tower[Player[k].TowersMyID[i]].resourcesum < Tower[Player[k].TowersMyID[j]].resourcesum) {
-					//Player[0].TowersMyID.swap(i, j);
-					int temp = Player[k].TowersMyID[i];
-					Player[k].TowersMyID[i] = Player[k].TowersMyID[j];
-					Player[k].TowersMyID[j] = temp;
+	for (int k = 0; k < Player.size(); k++)
+		for (int i = 1; i < Player[k].TowersID.size(); i++) 
+			for (int j = i + 1; j < Player[k].TowersID.size(); j++) {
+				if (Tower[Player[k].TowersID[i]].resourcesum < Tower[Player[k].TowersID[j]].resourcesum) {
+					int temp = Player[k].TowersID[i];
+					Player[k].TowersID[i] = Player[k].TowersID[j];
+					Player[k].TowersID[j] = temp;
 				}
 			}
-		}
-	}
 }
 
 //猥琐发育
 void Alchemist::HappyGrow_(Info& info) {
 	//无脑势力属性提升
-	if (info.playerInfo[Player[0].MyID].technologyPoint >=      //资源再生
-		RegenerationSpeedUpdateCost[info.playerInfo[Player[0].MyID].RegenerationSpeedLevel]
-		&& info.playerInfo[Player[0].MyID].RegenerationSpeedLevel < MAX_REGENERATION_SPEED_LEVEL) {
+	if (info.playerInfo[Player[0].ID].technologyPoint >=      //资源再生
+		RegenerationSpeedUpdateCost[info.playerInfo[Player[0].ID].RegenerationSpeedLevel]
+		&& info.playerInfo[Player[0].ID].RegenerationSpeedLevel < MAX_REGENERATION_SPEED_LEVEL) {
 		info.myCommandList.addCommand(upgrade, RegenerationSpeed);
 		step++;
 	}
 
 	//改变塔策略为生长
-	for (int i = 0; i < Player[0].TowersMyID.size(); i++) {
+	for (int i = 0; i < Player[0].TowersID.size(); i++) {
 		if (step >= info.myMaxControl)
 			return;
-		if (info.towerInfo[Player[0].TowersMyID[i]].resource < info.towerInfo[Player[0].TowersMyID[i]].maxResource - 20)
-			switch (Tower[Player[0].TowersMyID[i]].strategy)
+		if (info.towerInfo[Player[0].TowersID[i]].resource < info.towerInfo[Player[0].TowersID[i]].maxResource - 20)
+			switch (Tower[Player[0].TowersID[i]].strategy)
 			{
 			case Normal:
 			case Defence:
-				if (Tower[Player[0].TowersMyID[i]].Attactktowers.size() == 0
-					&& info.playerInfo[Player[0].MyID].technologyPoint >=
-					StrategyChangeCost[Tower[Player[0].TowersMyID[i]].strategy][Grow]) {
-					info.myCommandList.addCommand(changeStrategy, Player[0].TowersMyID[i], Grow);
-					Tower[Player[0].TowersMyID[i]].strategy = Grow;
+				if (Tower[Player[0].TowersID[i]].Attactktowers.size() == 0
+					&& info.playerInfo[Player[0].ID].technologyPoint >=
+					StrategyChangeCost[Tower[Player[0].TowersID[i]].strategy][Grow]) {
+					info.myCommandList.addCommand(changeStrategy, Player[0].TowersID[i], Grow);
+					Tower[Player[0].TowersID[i]].strategy = Grow;
 					step++;
 				}
 				break;
 			case Attack:
-				if (Tower[Player[0].TowersMyID[i]].Aimtowers.size() == 0
-					&& info.playerInfo[Player[0].MyID].technologyPoint >= 5) {
-					info.myCommandList.addCommand(changeStrategy, Player[0].TowersMyID[i], Grow);
-					Tower[Player[0].TowersMyID[i]].strategy = Grow;
+				if (Tower[Player[0].TowersID[i]].Aimtowers.size() == 0
+					&& info.playerInfo[Player[0].ID].technologyPoint >= 5) {
+					info.myCommandList.addCommand(changeStrategy, Player[0].TowersID[i], Grow);
+					Tower[Player[0].TowersID[i]].strategy = Grow;
 					step++;
 				}
 				break;
@@ -271,38 +259,38 @@ void Alchemist::HappyGrow_(Info& info) {
 			}
 	}
 
-	if (info.playerInfo[Player[0].MyID].technologyPoint >=      //防御能力
-		DefenceStageUpdateCost[info.playerInfo[Player[0].MyID].DefenceLevel]
-		&& info.playerInfo[Player[0].MyID].DefenceLevel < MAX_DEFENCE_LEVEL) {
+	if (info.playerInfo[Player[0].ID].technologyPoint >=      //防御能力
+		DefenceStageUpdateCost[info.playerInfo[Player[0].ID].DefenceLevel]
+		&& info.playerInfo[Player[0].ID].DefenceLevel < MAX_DEFENCE_LEVEL) {
 		info.myCommandList.addCommand(upgrade, Wall);
 		step++;
 	}
-	if (info.playerInfo[Player[0].MyID].technologyPoint >=      //行动力
-		DefenceStageUpdateCost[info.playerInfo[Player[0].MyID].ExtraControlLevel]
-		&& info.playerInfo[Player[0].MyID].ExtraControlLevel < MAX_EXTRA_CONTROL_LEVEL) {
+	if (info.playerInfo[Player[0].ID].technologyPoint >=      //行动力
+		DefenceStageUpdateCost[info.playerInfo[Player[0].ID].ExtraControlLevel]
+		&& info.playerInfo[Player[0].ID].ExtraControlLevel < MAX_EXTRA_CONTROL_LEVEL) {
 		info.myCommandList.addCommand(upgrade, ExtraControl);
 		step++;
 	}
-	if (info.playerInfo[Player[0].MyID].technologyPoint >=      //速度
-		DefenceStageUpdateCost[info.playerInfo[Player[0].MyID].ExtendingSpeedLevel]
-		&& info.playerInfo[Player[0].MyID].ExtendingSpeedLevel < MAX_EXTENDING_SPEED_LEVEL) {
+	if (info.playerInfo[Player[0].ID].technologyPoint >=      //速度
+		DefenceStageUpdateCost[info.playerInfo[Player[0].ID].ExtendingSpeedLevel]
+		&& info.playerInfo[Player[0].ID].ExtendingSpeedLevel < MAX_EXTENDING_SPEED_LEVEL) {
 		info.myCommandList.addCommand(upgrade, ExtendingSpeed);
 		step++;
 	}
 
 	//无脑传输
-	for (int i = 1; i < Player[0].TowersMyID.size(); i++) {
+	for (int i = 1; i < Player[0].TowersID.size(); i++) {
 		if (step >= info.myMaxControl
 			|| (Tower[i].Attactktowers.size() > 0      //受到攻击或主塔即将到达上限兵力数
-			|| info.towerInfo[Player[0].TowersMyID[0]].maxResource - info.towerInfo[Player[0].TowersMyID[0]].resource < 10)
+			|| info.towerInfo[Player[0].TowersID[0]].maxResource - info.towerInfo[Player[0].TowersID[0]].resource < 15)
 			)
-			return;
+			break;
 		/*部分代码转移至CutLine_()*/
-		else if (Attackable_(info, Player[0].TowersMyID[i], Player[0].TowersMyID[0]) > 40
-			&& info.towerInfo[Player[0].TowersMyID[i]].resource >= 10      //初始值大约在10
-			&& info.towerInfo[Player[0].TowersMyID[0]].resource < info.towerInfo[Player[0].TowersMyID[0]].maxResource) {
-			if (Passable_(info, Player[0].TowersMyID[i], Player[0].TowersMyID[0])) {      //目标兵线不存在且兵力可到达
-				info.myCommandList.addCommand(addLine, Player[0].TowersMyID[i], Player[0].TowersMyID[0]);
+		else if (Attackable_(info, Player[0].TowersID[i], Player[0].TowersID[0]) > 40
+			&& info.towerInfo[Player[0].TowersID[i]].resource >= 10      //初始值大约在10
+			&& info.towerInfo[Player[0].TowersID[0]].resource < info.towerInfo[Player[0].TowersID[0]].maxResource) {
+			if (Passable_(info, Player[0].TowersID[i], Player[0].TowersID[0])) {      //目标兵线不存在且兵力可到达
+				info.myCommandList.addCommand(addLine, Player[0].TowersID[i], Player[0].TowersID[0]);
 				step++;
 			}
 		}
@@ -310,7 +298,7 @@ void Alchemist::HappyGrow_(Info& info) {
 }
 
 //判断能否正常出兵2.0
-bool Alchemist::Passable_(Info& info, MYTID tower1, MYTID tower2) {
+bool Alchemist::Passable_(Info& info, TTowerID tower1, TTowerID tower2) {
 	//线路判断
 	if (tower1 == tower2      //同一个塔
 		|| info.mapInfo->passable(info.towerInfo[tower1].position,
@@ -321,7 +309,7 @@ bool Alchemist::Passable_(Info& info, MYTID tower1, MYTID tower2) {
 
 	double D = getDistance(info.towerInfo[tower1].position, info.towerInfo[tower2].position) / 10;     //计算距离
 
-																									   //兵力判断
+	//兵力判断
 	if (info.towerInfo[tower1].currLineNum < info.towerInfo[tower1].maxLineNum      //可派兵
 		&&info.towerInfo[tower1].resource >= D)      //兵力足够出征
 		return true;
@@ -330,9 +318,9 @@ bool Alchemist::Passable_(Info& info, MYTID tower1, MYTID tower2) {
 }
 
 //判断能否进攻2.0
-double Alchemist::Attackable_(Info& info, MYTID tower1, MYTID tower2) {
+double Alchemist::Attackable_(Info& info, TTowerID tower1, TTowerID tower2) {
 	if (Passable_(info, tower1, tower2) == false)      //不可出征
-		return false;
+		return 0;
 
 	double D = getDistance(info.towerInfo[tower1].position, info.towerInfo[tower2].position) / 10;     //计算距离
 	double t = D / v_(info, tower1);      //到达需要的时间
@@ -347,11 +335,11 @@ double Alchemist::Attackable_(Info& info, MYTID tower1, MYTID tower2) {
 }
 
 //反击函数及防御
-void Alchemist::Reattack_(Info& info, MYTID tower1, MYTID tower2) {
-	if (Attackable_(info, tower1, tower2) == 0) {      //无法成功反击
+void Alchemist::Reattack_(Info& info, TTowerID tower1, TTowerID tower2) {
+	if (step < info.myMaxControl && Attackable_(info, tower1, tower2) == 0) {      //无法成功反击
 		if (Tower[tower1].strategy != Defence
 			&&info.towerInfo[tower2].strategy == Attack) {
-			if (info.playerInfo[Player[0].MyID].technologyPoint >= 5
+			if (info.playerInfo[Player[0].ID].technologyPoint >= 5
 				&& info.towerInfo[tower2].owner != info.myID) {
 				info.myCommandList.addCommand(changeStrategy, tower1, Defence);
 				Tower[tower1].strategy = Defence;
@@ -360,7 +348,7 @@ void Alchemist::Reattack_(Info& info, MYTID tower1, MYTID tower2) {
 		}
 		else if (Tower[tower1].strategy != Grow
 			&&info.towerInfo[tower2].strategy == Normal)
-			if (info.playerInfo[Player[0].MyID].technologyPoint >= 5
+			if (info.playerInfo[Player[0].ID].technologyPoint >= 5
 				&& info.towerInfo[tower2].owner != info.myID) {
 				info.myCommandList.addCommand(changeStrategy, tower1, Grow);
 				Tower[tower1].strategy = Grow;
@@ -372,28 +360,26 @@ void Alchemist::Reattack_(Info& info, MYTID tower1, MYTID tower2) {
 		info.myCommandList.addCommand(addLine, tower1, tower2);
 		step++;
 	}
-
-	/*部分代码在切断函数中实现*/
 }
 
 //进攻函数
 void Alchemist::Attack_(Info& info) {
-	for (int k = 0; k < Player[0].TowersMyID.size(); k++) {
+	for (int k = 0; k < Player[0].TowersID.size(); k++) {
 		if (step >= info.myMaxControl)
 			break;
-		SearchBesAim_(info, Player[0].TowersMyID[k]);
+		SearchBesAim_(info, Player[0].TowersID[k]);
 		for (int i = 0; i < Toweraims.size(); i++) {
 			if (step >= info.myMaxControl)
 				break;
 			else {
-				if (Tower[Player[0].TowersMyID[k]].strategy != Attack
+				if (Tower[Player[0].TowersID[k]].strategy != Attack
 					&&Tower[Toweraims[i]].strategy != Defence) {      //攻击模式...加了这个后简直上天了...
-					info.myCommandList.addCommand(changeStrategy, Player[0].TowersMyID[k], Attack);
-					Tower[Player[0].TowersMyID[k]].strategy = Attack;
+					info.myCommandList.addCommand(changeStrategy, Player[0].TowersID[k], Attack);
+					Tower[Player[0].TowersID[k]].strategy = Attack;
 					step++;
 				}
 				if (step < info.myMaxControl) {
-					info.myCommandList.addCommand(addLine, Player[0].TowersMyID[k], Toweraims[i]);
+					info.myCommandList.addCommand(addLine, Player[0].TowersID[k], Toweraims[i]);
 					step++;
 				}
 			}
@@ -402,7 +388,7 @@ void Alchemist::Attack_(Info& info) {
 }
 
 //寻找最优进攻目标 
-void Alchemist::SearchBesAim_(Info& info, MYTID tower) {
+void Alchemist::SearchBesAim_(Info& info, TTowerID tower) {
 	Toweraims.clear();
 	vector <double> S;
 	double Stemp;
@@ -419,7 +405,7 @@ void Alchemist::SearchBesAim_(Info& info, MYTID tower) {
 	for (int i = 0; i < Toweraims.size(); i++)       //简单的资源距离由优到劣
 		for (int j = i + 1; j < Toweraims.size(); j++) {
 			if (S[i] < S[j]) {
-				MYTID temp = Toweraims[i];
+				TTowerID temp = Toweraims[i];
 				double tempS = S[i];
 				Toweraims[i] = Toweraims[j];
 				Toweraims[j] = temp;
@@ -431,53 +417,53 @@ void Alchemist::SearchBesAim_(Info& info, MYTID tower) {
 
 //切断兵线
 void Alchemist::CutLine_(Info& info) {
-	for (int i = 0; i < Player[0].TowersMyID.size(); i++) {
+	for (int i = 0; i < Player[0].TowersID.size(); i++) {
 		if (step >= info.myMaxControl)
 			return;
-		for (int j = 0; j < Tower[Player[0].TowersMyID[i]].Aimtowers.size(); j++) {
+		for (int j = 0; j < Tower[Player[0].TowersID[i]].Aimtowers.size(); j++) {
 			if (step >= info.myMaxControl)
 				return;
 			//对我方塔
-			if (info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].owner == info.myID) {
+			if (info.towerInfo[Tower[Player[0].TowersID[i]].Aimtowers[j]].owner == info.myID) {
 				//兵力最大塔距兵力上限的差小于10, 或者兵源被攻击
-				if (info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].maxResource
-					- info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource < 10
-					|| Tower[Player[0].TowersMyID[i]].Attactktowers.size() > 0) {
-					info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
-						Tower[Player[0].TowersMyID[i]].Aimtowers[j],
-						getDistance(info.towerInfo[Player[0].TowersMyID[i]].position,
-							info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].position) / 10 - 1);      //切断对主塔的奶
+				if (info.towerInfo[Tower[Player[0].TowersID[i]].Aimtowers[j]].maxResource
+					- info.towerInfo[Tower[Player[0].TowersID[i]].Aimtowers[j]].resource < 10
+					|| Tower[Player[0].TowersID[i]].Attactktowers.size() > 0) {
+					info.myCommandList.addCommand(cutLine, Player[0].TowersID[i],
+						Tower[Player[0].TowersID[i]].Aimtowers[j],
+						getDistance(info.towerInfo[Player[0].TowersID[i]].position,
+							info.towerInfo[Tower[Player[0].TowersID[i]].Aimtowers[j]].position) / 10 - 1);      //切断对主塔的奶
 					step++;
 				}
 				//塔内兵力小于40
-				if (info.towerInfo[Player[0].TowersMyID[i]].resource < 40) {
-					info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
-						Tower[Player[0].TowersMyID[i]].Aimtowers[j],
-						41 - info.towerInfo[Player[0].TowersMyID[i]].resource);      //切断对主塔的奶, 回复满40
+				if (info.towerInfo[Player[0].TowersID[i]].resource < 40) {
+					info.myCommandList.addCommand(cutLine, Player[0].TowersID[i],
+						Tower[Player[0].TowersID[i]].Aimtowers[j],
+						41 - info.towerInfo[Player[0].TowersID[i]].resource);      //切断对主塔的奶, 回复满40
 					step++;
 				}
 			}
 			//对敌方塔
 			else {
 				//如果对方反击
-				if (info.lineInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]][Player[0].TowersMyID[i]].exist) {
-					if (info.towerInfo[Player[0].TowersMyID[i]].resource + 2 * info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource
-						< info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource + /*10 + */info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].maxlength / 10) {
-						info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
-							Tower[Player[0].TowersMyID[i]].Aimtowers[j],
-							getDistance(info.towerInfo[Player[0].TowersMyID[i]].position,
-								info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].position) / 10 - 1);      //撤兵
+				if (info.lineInfo[Tower[Player[0].TowersID[i]].Aimtowers[j]][Player[0].TowersID[i]].exist) {
+					if (info.towerInfo[Player[0].TowersID[i]].resource + 2 * info.lineInfo[Player[0].TowersID[i]][Tower[Player[0].TowersID[i]].Aimtowers[j]].resource
+						< info.towerInfo[Tower[Player[0].TowersID[i]].Aimtowers[j]].resource + /*10 + */info.lineInfo[Player[0].TowersID[i]][Tower[Player[0].TowersID[i]].Aimtowers[j]].maxlength / 10) {
+						info.myCommandList.addCommand(cutLine, Player[0].TowersID[i],
+							Tower[Player[0].TowersID[i]].Aimtowers[j],
+							getDistance(info.towerInfo[Player[0].TowersID[i]].position,
+								info.towerInfo[Tower[Player[0].TowersID[i]].Aimtowers[j]].position) / 10 - 1);      //撤兵
 						step++;
 					}
 				}
 				//如果被攻击或者无法安全攻占对方塔
-				else if (info.towerInfo[Player[0].TowersMyID[i]].resource + info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource
-					< info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource + 10
-					|| Tower[Player[0].TowersMyID[i]].Attactktowers.size() > 1) {
-					info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
-						Tower[Player[0].TowersMyID[i]].Aimtowers[j],
-						getDistance(info.towerInfo[Player[0].TowersMyID[i]].position,
-							info.towerInfo[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].position) / 10 - 1);      //撤兵
+				else if (info.towerInfo[Player[0].TowersID[i]].resource + info.lineInfo[Player[0].TowersID[i]][Tower[Player[0].TowersID[i]].Aimtowers[j]].resource
+					< info.towerInfo[Tower[Player[0].TowersID[i]].Aimtowers[j]].resource + 10
+					|| Tower[Player[0].TowersID[i]].Attactktowers.size() > 1) {
+					info.myCommandList.addCommand(cutLine, Player[0].TowersID[i],
+						Tower[Player[0].TowersID[i]].Aimtowers[j],
+						getDistance(info.towerInfo[Player[0].TowersID[i]].position,
+							info.towerInfo[Tower[Player[0].TowersID[i]].Aimtowers[j]].position) / 10 - 1);      //撤兵
 					step++;
 				}
 			}
@@ -490,17 +476,17 @@ void Alchemist::CutLine_(Info& info) {
 
 //快速进攻
 void Alchemist::QuiklyAttack_(Info& info) {
-	for (int i = 0; i < Player[0].TowersMyID.size(); i++) {
-		for (int j = 0; j < Tower[Player[0].TowersMyID[i]].Aimtowers.size(); j++) {
+	for (int i = 0; i < Player[0].TowersID.size(); i++) {
+		for (int j = 0; j < Tower[Player[0].TowersID[i]].Aimtowers.size(); j++) {
 			if (step >= info.myMaxControl)
 				return;
 
 			bool QuiklyAttackAble = true;
 			int M, E = 0;
-			double MLs = info.lineInfo[Player[0].TowersMyID[i]][Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resource;
-			double ASs = Tower[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].resourcesum;
-			for (int k = 0; k < Tower[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].Attactktowers.size(); k++) {
-				if (info.towerInfo[Tower[Tower[Player[0].TowersMyID[i]].Aimtowers[j]].Attactktowers[k]].owner != info.myID)
+			double MLs = info.lineInfo[Player[0].TowersID[i]][Tower[Player[0].TowersID[i]].Aimtowers[j]].resource;
+			double ASs = Tower[Tower[Player[0].TowersID[i]].Aimtowers[j]].resourcesum;
+			for (int k = 0; k < Tower[Tower[Player[0].TowersID[i]].Aimtowers[j]].Attactktowers.size(); k++) {
+				if (info.towerInfo[Tower[Tower[Player[0].TowersID[i]].Aimtowers[j]].Attactktowers[k]].owner != info.myID)
 					E++;
 				else
 					M++;
@@ -511,8 +497,8 @@ void Alchemist::QuiklyAttack_(Info& info) {
 				QuiklyAttackAble = false;
 
 			if (QuiklyAttackAble) {
-				info.myCommandList.addCommand(cutLine, Player[0].TowersMyID[i],
-					Tower[Player[0].TowersMyID[i]].Aimtowers[j],
+				info.myCommandList.addCommand(cutLine, Player[0].TowersID[i],
+					Tower[Player[0].TowersID[i]].Aimtowers[j],
 					MLs - ASs - 2);      //切断并快速进攻
 				step++;
 			}
@@ -523,7 +509,7 @@ void Alchemist::QuiklyAttack_(Info& info) {
 }
 
 //回复速率计算
-double Alchemist::vGrow_(Info& info, MYTID tower) {
+double Alchemist::vGrow_(Info& info, TTowerID tower) {
 	int n = info.towerInfo[tower].resource;
 	double v0, vc, vs;      //基础、策略、势力
 
@@ -557,7 +543,7 @@ double Alchemist::vGrow_(Info& info, MYTID tower) {
 }
 
 //出兵速率
-double Alchemist::v_(Info& info, MYTID tower) {
+double Alchemist::v_(Info& info, TTowerID tower) {
 	double v0 = 3;
 	double vs;
 
@@ -567,7 +553,7 @@ double Alchemist::v_(Info& info, MYTID tower) {
 }
 
 //消耗速率计算
-double Alchemist::vDown_(Info& info, MYTID tower) {
+double Alchemist::vDown_(Info& info, TTowerID tower) {
 	int lineN = Tower[tower].Aimtowers.size();
 	double v0 = v_(info, tower);
 	double v1;
