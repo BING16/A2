@@ -45,8 +45,15 @@ v1.3
 7. 手动抢占12号塔 v1.3.8
 8. 优化大量算法及数据名称 v1.3.9
 
+预计增加及优化的内容:
+1. 防御、进攻策略中考虑对峙与压制两种情况
+2. 需要有专门用于12号塔的代码
+3. 需优化反击、支援算法
+
 v1.4
 1. 修复v1.3.7中发现的bug, 并优化算法
+2. 由于2.0版本削弱切断的优势, 修改了快速进攻的判断标准
+3. 优化防御算法, 预计提出改变策略函数
 
 *********************************************************************************/
 
@@ -105,12 +112,12 @@ void player_ai(Info& info)
 {
 	Initialize_(info);
 
-	//先发占领12号塔
-	if (info.round <= 20 && info.towerInfo[Player[0].TowersID[2]].resource > 20
-		&& Tower[12].Attactktowers.size() == 0) {
-		info.myCommandList.addCommand(addLine, Player[0].TowersID[2], 12);
-		step++;
-	}
+	////先发占领12号塔
+	//if (info.round <= 20 && info.towerInfo[Player[0].TowersID[Player[0].TowersID.size()-1]].resource > 20
+	//	&& Tower[12].Attactktowers.size() == 0) {
+	//	info.myCommandList.addCommand(addLine, Player[0].TowersID[Player[0].TowersID.size() - 1], 12);
+	//	step++;
+	//}
 
 	QuiklyAttack_(info);
 
@@ -336,29 +343,61 @@ double Alchemist::Attackable_(Info& info, TTowerID tower1, TTowerID tower2) {
 
 //反击函数及防御
 void Alchemist::Reattack_(Info& info, TTowerID tower1, TTowerID tower2) {
-	if (step < info.myMaxControl && Attackable_(info, tower1, tower2) == 0) {      //无法成功反击
-		if (Tower[tower1].strategy != Defence
-			&&info.towerInfo[tower2].strategy == Attack) {
-			if (info.playerInfo[Player[0].ID].technologyPoint >= 5
-				&& info.towerInfo[tower2].owner != info.myID) {
-				info.myCommandList.addCommand(changeStrategy, tower1, Defence);
-				Tower[tower1].strategy = Defence;
+	//统计攻击该塔的塔的策略
+	int C[4] = { 0,0,0,0 };      //Normal Attack Defence Grow
+	for (int i = 0; i < Tower[tower1].Attactktowers.size(); i++) {
+		C[Tower[i].strategy]++;
+	}
+	//统计该塔进攻的塔的策略
+	int A[4] = { 0,0,0,0 };      //Normal Attack Defence Grow
+	for (int i = 0; i < Tower[tower1].Aimtowers.size(); i++) {
+		A[Tower[i].strategy]++;
+	}
+
+	if (info.lineInfo[tower1][tower2].exist == false) {    //未反击
+		if (step < info.myMaxControl && Attackable_(info, tower1, tower2) == 0) {      //无法成功反击
+			if (Tower[tower1].strategy == Grow
+				&& (C[Normal] != 0 || C[Attack] + C[Grow] > 1)) {
+				if (info.playerInfo[Player[0].ID].technologyPoint >= 5
+					&& info.towerInfo[tower2].owner != info.myID) {
+					info.myCommandList.addCommand(changeStrategy, tower1, Defence);
+					Tower[tower1].strategy = Defence;
+					step++;
+				}
+			}
+			else if (Tower[tower1].strategy != Grow && C[Normal] == 0 && C[Attack] + C[Grow] <= 1) {
+				if (info.playerInfo[Player[0].ID].technologyPoint >= 5
+					&& info.towerInfo[tower2].owner != info.myID) {
+					info.myCommandList.addCommand(changeStrategy, tower1, Grow);
+					Tower[tower1].strategy = Grow;
+					step++;
+				}
+			}
+		}
+
+		else if (step < info.myMaxControl) {
+			if (Tower[tower1].strategy != Grow && Tower[tower2].strategy != Normal && A[Normal] == 0) {
+				if (info.playerInfo[Player[0].ID].technologyPoint >= 5
+					&& info.towerInfo[tower2].owner != info.myID) {
+					info.myCommandList.addCommand(changeStrategy, tower1, Grow);
+					Tower[tower1].strategy = Grow;
+					step++;
+				}
+			}
+			else if (Tower[tower1].strategy == Grow && (Tower[tower2].strategy == Normal || A[Normal] != 0)) {
+				if (info.playerInfo[Player[0].ID].technologyPoint >= 2
+					&& info.towerInfo[tower2].owner != info.myID) {
+					info.myCommandList.addCommand(changeStrategy, tower1, Defence);
+					Tower[tower1].strategy = Defence;
+					step++;
+				}
+			}
+
+			if (step < info.myMaxControl) {
+				info.myCommandList.addCommand(addLine, tower1, tower2);
 				step++;
 			}
 		}
-		else if (Tower[tower1].strategy != Grow
-			&&info.towerInfo[tower2].strategy == Normal)
-			if (info.playerInfo[Player[0].ID].technologyPoint >= 5
-				&& info.towerInfo[tower2].owner != info.myID) {
-				info.myCommandList.addCommand(changeStrategy, tower1, Grow);
-				Tower[tower1].strategy = Grow;
-				step++;
-			}
-	}
-	else if (step < info.myMaxControl
-		&&info.towerInfo[tower2].owner != info.myID) {
-		info.myCommandList.addCommand(addLine, tower1, tower2);
-		step++;
 	}
 }
 
@@ -491,7 +530,7 @@ void Alchemist::QuiklyAttack_(Info& info) {
 				else
 					M++;
 			}
-			if (M > E + 1 && MLs > ASs + 3) {      //兵线上的兵力大于目标塔总兵力 + 3
+			if (/*M > E + 1*/E<0 /*&& MLs > ASs + 3*/) {      //兵线上的兵力大于目标塔总兵力 + 3
 			}
 			else
 				QuiklyAttackAble = false;
